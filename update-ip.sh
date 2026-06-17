@@ -1,7 +1,7 @@
 #!/bin/sh
-set -e
 
 LAST_IP_FILE="/data/last_ip"
+INTERVAL=300
 
 log() {
   echo "$(date '+%Y-%m-%dT%H:%M:%S') $*"
@@ -12,38 +12,45 @@ if [ -z "$CLOUDFLARE_ZONE_ID" ] || [ -z "$CLOUDFLARE_RECORD_ID" ] || [ -z "$CLOU
   exit 1
 fi
 
-CURRENT_IP=$(curl -sf "https://api.ipify.org?format=json" | jq -r '.ip')
+mkdir -p /data
 
-if [ -z "$CURRENT_IP" ]; then
-  log "ERROR: Failed to retrieve public IP"
-  exit 1
-fi
+while true; do
+  CURRENT_IP=$(curl -sf "https://api.ipify.org?format=json" | jq -r '.ip')
 
-LAST_IP=""
-if [ -f "$LAST_IP_FILE" ]; then
-  LAST_IP=$(cat "$LAST_IP_FILE")
-fi
+  if [ -z "$CURRENT_IP" ]; then
+    log "ERROR: Failed to retrieve public IP, retrying in ${INTERVAL}s"
+    sleep "$INTERVAL"
+    continue
+  fi
 
-if [ "$CURRENT_IP" = "$LAST_IP" ]; then
-  log "IP unchanged ($CURRENT_IP), skipping update"
-  exit 0
-fi
+  LAST_IP=""
+  if [ -f "$LAST_IP_FILE" ]; then
+    LAST_IP=$(cat "$LAST_IP_FILE")
+  fi
 
-log "IP changed: '$LAST_IP' -> '$CURRENT_IP', updating Cloudflare..."
+  if [ "$CURRENT_IP" = "$LAST_IP" ]; then
+    log "IP unchanged ($CURRENT_IP), skipping update"
+    sleep "$INTERVAL"
+    continue
+  fi
 
-RESPONSE=$(curl -sf -X PATCH \
-  "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${CLOUDFLARE_RECORD_ID}" \
-  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-  -H "Content-Type: application/json" \
-  --data "{\"content\":\"${CURRENT_IP}\"}")
+  log "IP changed: '$LAST_IP' -> '$CURRENT_IP', updating Cloudflare..."
 
-SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+  RESPONSE=$(curl -sf -X PATCH \
+    "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${CLOUDFLARE_RECORD_ID}" \
+    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    --data "{\"content\":\"${CURRENT_IP}\"}")
 
-if [ "$SUCCESS" = "true" ]; then
-  echo "$CURRENT_IP" > "$LAST_IP_FILE"
-  log "Cloudflare DNS updated successfully to $CURRENT_IP"
-else
-  ERRORS=$(echo "$RESPONSE" | jq -r '.errors')
-  log "ERROR: Cloudflare update failed: $ERRORS"
-  exit 1
-fi
+  SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+
+  if [ "$SUCCESS" = "true" ]; then
+    echo "$CURRENT_IP" > "$LAST_IP_FILE"
+    log "Cloudflare DNS updated successfully to $CURRENT_IP"
+  else
+    ERRORS=$(echo "$RESPONSE" | jq -r '.errors')
+    log "ERROR: Cloudflare update failed: $ERRORS"
+  fi
+
+  sleep "$INTERVAL"
+done
