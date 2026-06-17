@@ -1,4 +1,5 @@
 #!/bin/sh
+set +m  # disable job control so sleep doesn't trigger setpgid
 
 LAST_IP_FILE="/data/last_ip"
 INTERVAL=300
