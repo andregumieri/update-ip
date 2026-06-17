@@ -1,0 +1,13 @@
+services:
+  update-ip:
+    build: .
+    restart: unless-stopped
+    environment:
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID}
+      CLOUDFLARE_RECORD_ID: ${CLOUDFLARE_RECORD_ID}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+    volumes:
+      - ip-data:/data
+
+volumes:
+  ip-data:
